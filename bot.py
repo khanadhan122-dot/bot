@@ -3,10 +3,9 @@ import time
 import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
-import xml.etree.ElementTree as ET
 
-BOT_TOKEN  = os.environ["BOT_TOKEN"]
-CHANNEL_ID = os.environ["CHANNEL_ID"]
+BOT_TOKEN   = os.environ["BOT_TOKEN"]
+CHANNEL_ID  = os.environ["CHANNEL_ID"]
 CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
 SEEN = set()
@@ -15,29 +14,36 @@ NITTER_HOSTS = [
     "https://xcancel.com",
     "https://nitter.poast.org",
     "https://nitter.tiekoetter.com",
+    "https://nitter.privacydev.net",
+    "https://nitter.kavin.rocks",
 ]
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 def get_tweets():
     for host in NITTER_HOSTS:
         try:
-            url = f"{host}/FabrizioRomano/rss"
-            r = requests.get(url, timeout=15, headers=HEADERS)
+            r = requests.get(f"{host}/FabrizioRomano", timeout=15, headers=HEADERS)
             if r.status_code != 200:
+                print(f"Skip {host}: status {r.status_code}")
                 continue
-            root = ET.fromstring(r.content)
+            soup = BeautifulSoup(r.text, "html.parser")
             tweets = []
-            for item in root.findall(".//item"):
-                desc = item.findtext("description") or ""
-                text = BeautifulSoup(desc, "html.parser").get_text(" ").strip()
-                if not text:
-                    text = (item.findtext("title") or "").strip()
-                if text and not text.startswith("RT @") and len(text) > 15:
-                    tweets.append(text)
+            for item in soup.select(".timeline-item"):
+                if item.select_one(".retweet-header"):
+                    continue
+                content = item.select_one(".tweet-content")
+                if content:
+                    text = content.get_text(" ").strip()
+                    if len(text) > 15:
+                        tweets.append(text)
             if tweets:
-                print(f"OK: {host} — {len(tweets)} post")
+                print(f"OK {host}: {len(tweets)} post")
                 return tweets
+            print(f"Skip {host}: post topilmadi")
         except Exception as e:
             print(f"Xato {host}: {e}")
     return []
@@ -46,11 +52,12 @@ def translate(text):
     try:
         r = requests.get(
             "https://translate.googleapis.com/translate_a/single",
-            params={"client":"gtx","sl":"en","tl":"uz","dt":"t","q":text},
+            params={"client": "gtx", "sl": "en", "tl": "uz", "dt": "t", "q": text},
             timeout=15
         )
         return "".join(p[0] for p in r.json()[0] if p[0])
-    except:
+    except Exception as e:
+        print(f"Tarjima xato: {e}")
         return None
 
 def send(original, translated):
@@ -71,18 +78,19 @@ def send(original, translated):
     if r.status_code == 200:
         print(f"Yuborildi: {original[:60]}")
         return True
-    print(f"Telegram xato: {r.text[:100]}")
+    print(f"Telegram xato: {r.text[:150]}")
     return False
 
 def main():
     global SEEN
     print(f"Bot ishga tushdi | Kanal: {CHANNEL_ID}")
+    print(f"Har {CHECK_EVERY//60} daqiqada tekshiradi")
 
     # Birinchi ishganda mavjud postlarni belgilab qo'y
     tweets = get_tweets()
     for t in tweets:
         SEEN.add(t[:100])
-    print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
+    print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi, yangilarini kutmoqda...")
 
     while True:
         time.sleep(CHECK_EVERY)
@@ -99,7 +107,7 @@ def main():
                     SEEN.add(key)
                     new += 1
                     time.sleep(2)
-            print(f"{new} ta yangi post" if new else "Yangi post yoq")
+            print(f"{new} ta yangi post yuborildi" if new else "Yangi post yoq")
         except Exception as e:
             print(f"Xato: {e}")
 
