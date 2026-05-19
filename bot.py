@@ -11,15 +11,6 @@ CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
 SEEN = set()
 
-SOURCES = [
-    {"user": "FabrizioRomano",   "name": "Fabrizio Romano",     "flag": "🇮🇹"},
-    {"user": "David_Ornstein",   "name": "David Ornstein",      "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    {"user": "MatteMoretto",     "name": "Matteo Moretto",      "flag": "🇪🇸"},
-    {"user": "Plettigoal",       "name": "Florian Plettenberg", "flag": "🇩🇪"},
-    {"user": "BenJacobs",        "name": "Ben Jacobs",          "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    {"user": "Ekremkonur",       "name": "Ekrem Konur",         "flag": "🇹🇷"},
-]
-
 NITTER_HOSTS = [
     "https://xcancel.com",
     "https://nitter.poast.org",
@@ -36,7 +27,7 @@ KEEP_WORDS = [
     "PSG", "Juventus", "AC Milan", "Inter Milan", "Napoli",
     "Atletico Madrid", "Borussia Dortmund", "Premier League",
     "La Liga", "Serie A", "Bundesliga", "Champions League",
-    "Europa League", "Here we go", "HERE WE GO", "done deal",
+    "Europa League", "HERE WE GO", "Here we go", "done deal",
     "Aston Villa", "Newcastle", "West Ham", "Everton", "Leicester",
     "Roma", "Lazio", "Fiorentina", "Sevilla", "Valencia",
     "RB Leipzig", "Bayer Leverkusen", "Porto", "Benfica", "Ajax",
@@ -73,12 +64,12 @@ def translate(text):
         print(f"Tarjima xato: {e}")
         return None
 
-def get_tweets(username):
+def get_tweets():
     for host in NITTER_HOSTS:
         try:
-            r = requests.get(f"{host}/{username}", timeout=15, headers=HEADERS)
+            r = requests.get(f"{host}/FabrizioRomano", timeout=15, headers=HEADERS)
             if r.status_code != 200:
-                print(f"Skip {host}/{username}: {r.status_code}")
+                print(f"Skip {host}: {r.status_code}")
                 continue
             soup = BeautifulSoup(r.text, "html.parser")
             tweets = []
@@ -86,36 +77,68 @@ def get_tweets(username):
                 if item.select_one(".retweet-header"):
                     continue
                 content = item.select_one(".tweet-content")
-                if content:
-                    text = content.get_text(" ").strip()
-                    if len(text) > 15:
-                        tweets.append(text)
+                if not content:
+                    continue
+                text = content.get_text(" ").strip()
+                if len(text) < 15:
+                    continue
+                # Rasmlarni topish
+                images = []
+                for img in item.select(".attachment img, .still-image img, img.tweet-image"):
+                    src = img.get("src", "")
+                    if src and "/pic/" in src:
+                        # Nitter rasm linkini asl Twitter rasm linkiga o'tkazish
+                        image_url = src.replace(host, "").strip("/")
+                        full_url = f"{host}/{image_url}" if not src.startswith("http") else src
+                        images.append(full_url)
+                tweets.append({"text": text, "images": images})
             if tweets:
-                print(f"OK {host}/{username}: {len(tweets)} post")
+                print(f"OK {host}: {len(tweets)} post")
                 return tweets
-            print(f"Skip {host}/{username}: post topilmadi")
         except Exception as e:
-            print(f"Xato {host}/{username}: {e}")
+            print(f"Xato {host}: {e}")
     return []
 
-def send(source, original, translated):
+def send(original, translated, images):
     here = "here we go" in original.lower()
     icon = "🟢 <b>HERE WE GO!</b>\n\n" if here else ""
-    text = (
-        f"⚽ <b>{source['name']}</b> {source['flag']}\n\n"
+    caption = (
+        f"⚽ <b>Fabrizio Romano</b> 🇮🇹\n\n"
         f"{icon}"
         f"🇺🇿 {translated}\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"🇬🇧 <i>{original}</i>"
     )
+
+    # Rasm bilan yuborish
+    if images:
+        try:
+            # Rasmni yuklab olish
+            img_r = requests.get(images[0], timeout=15, headers=HEADERS)
+            if img_r.status_code == 200:
+                r = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    data={"chat_id": CHANNEL_ID, "caption": caption,
+                          "parse_mode": "HTML"},
+                    files={"photo": ("image.jpg", img_r.content, "image/jpeg")},
+                    timeout=20
+                )
+                if r.status_code == 200:
+                    print(f"Rasm bilan yuborildi: {original[:50]}")
+                    return True
+                print(f"Rasm xato: {r.text[:100]}, oddiy matn yuboriladi")
+        except Exception as e:
+            print(f"Rasm yuklab olish xato: {e}")
+
+    # Faqat matn yuborish
     r = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={"chat_id": CHANNEL_ID, "text": text,
+        json={"chat_id": CHANNEL_ID, "text": caption,
               "parse_mode": "HTML", "disable_web_page_preview": True},
         timeout=15
     )
     if r.status_code == 200:
-        print(f"Yuborildi [{source['name']}]: {original[:50]}")
+        print(f"Matn yuborildi: {original[:50]}")
         return True
     print(f"Telegram xato: {r.text[:150]}")
     return False
@@ -123,37 +146,32 @@ def send(source, original, translated):
 def main():
     global SEEN
     print("=" * 50)
-    print(f"Transfer Bot ishga tushdi | {len(SOURCES)} ta manba")
+    print("Fabrizio Romano Bot ishga tushdi")
     print(f"Kanal: {CHANNEL_ID}")
     print(f"Har {CHECK_EVERY//60} daqiqada tekshiradi")
     print("=" * 50)
 
-    for source in SOURCES:
-        tweets = get_tweets(source["user"])
-        for t in tweets:
-            SEEN.add(f"{source['user']}:{t[:100]}")
-        print(f"{source['name']}: {len(tweets)} post belgilandi")
-        time.sleep(1)
-
-    print("\nYangi postlar kutilmoqda...")
+    tweets = get_tweets()
+    for t in tweets:
+        SEEN.add(t["text"][:100])
+    print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
+    print("Yangi postlar kutilmoqda...")
 
     while True:
         time.sleep(CHECK_EVERY)
         print(f"\n[{datetime.now().strftime('%H:%M')}] Tekshirilmoqda...")
         try:
+            tweets = get_tweets()
             total = 0
-            for source in SOURCES:
-                tweets = get_tweets(source["user"])
-                for tweet in tweets:
-                    key = f"{source['user']}:{tweet[:100]}"
-                    if key in SEEN:
-                        continue
-                    tr = translate(tweet)
-                    if tr and send(source, tweet, tr):
-                        SEEN.add(key)
-                        total += 1
-                        time.sleep(3)
-                time.sleep(1)
+            for tweet in tweets:
+                key = tweet["text"][:100]
+                if key in SEEN:
+                    continue
+                tr = translate(tweet["text"])
+                if tr and send(tweet["text"], tr, tweet["images"]):
+                    SEEN.add(key)
+                    total += 1
+                    time.sleep(3)
             print(f"{total} ta yangi post yuborildi" if total else "Yangi post yoq")
         except Exception as e:
             print(f"Xato: {e}")
