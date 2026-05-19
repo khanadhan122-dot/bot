@@ -5,7 +5,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 BOT_TOKEN   = "8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"
-CHANNEL_ID  = os.environ.get("CHANNEL_ID", "-1003483897290")
+CHANNEL_ID  = "-1003483897290"
 CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
 SEEN = set()
@@ -20,6 +20,46 @@ NITTER_HOSTS = [
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
 }
+
+# Tarjima qilinmaydigan so'zlar — ismlar va klub nomlari
+KEEP_WORDS = [
+    "Real Madrid", "Barcelona", "Manchester United", "Manchester City",
+    "Liverpool", "Chelsea", "Arsenal", "Tottenham", "Bayern Munich",
+    "PSG", "Juventus", "AC Milan", "Inter Milan", "Napoli",
+    "Atletico Madrid", "Borussia Dortmund", "Premier League",
+    "La Liga", "Serie A", "Bundesliga", "Champions League",
+    "Europa League", "Here we go", "HERE WE GO", "done deal",
+]
+
+def protect_words(text):
+    """Muhim so'zlarni tarjimadan himoya qilish"""
+    placeholders = {}
+    for i, word in enumerate(KEEP_WORDS):
+        if word.lower() in text.lower():
+            placeholder = f"XXWORD{i}XX"
+            placeholders[placeholder] = word
+            text = text.replace(word, placeholder)
+    return text, placeholders
+
+def restore_words(text, placeholders):
+    """Muhim so'zlarni qaytarish"""
+    for placeholder, word in placeholders.items():
+        text = text.replace(placeholder, word)
+    return text
+
+def translate(text):
+    try:
+        protected, placeholders = protect_words(text)
+        r = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "en", "tl": "uz", "dt": "t", "q": protected},
+            timeout=15
+        )
+        translated = "".join(p[0] for p in r.json()[0] if p[0])
+        return restore_words(translated, placeholders)
+    except Exception as e:
+        print(f"Tarjima xato: {e}")
+        return None
 
 def get_tweets():
     for host in NITTER_HOSTS:
@@ -45,20 +85,16 @@ def get_tweets():
             print(f"Xato {host}: {e}")
     return []
 
-def translate(text):
-    try:
-        r = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "en", "tl": "uz", "dt": "t", "q": text},
-            timeout=15
-        )
-        return "".join(p[0] for p in r.json()[0] if p[0])
-    except Exception as e:
-        print(f"Tarjima xato: {e}")
-        return None
-
 def send(original, translated):
-    icon = "🟢 <b>HERE WE GO!</b>\n\n" if "here we go" in original.lower() else ""
+    here = "here we go" in original.lower()
+    icon = "🟢 <b>HERE WE GO!</b>\n\n" if here else ""
+    
+    # HERE WE GO ni tarjimadan olib tashlash
+    translated = translated.replace("Mana, ketdik!", "HERE WE GO!")
+    translated = translated.replace("Bu yerga boring!", "HERE WE GO!")
+    translated = translated.replace("Mana boring!", "HERE WE GO!")
+    translated = translated.replace("Keling!", "HERE WE GO!")
+
     text = (
         f"⚽ <b>Fabrizio Romano</b>\n\n"
         f"{icon}"
@@ -66,7 +102,6 @@ def send(original, translated):
         f"━━━━━━━━━━━━━━\n"
         f"🇬🇧 <i>{original}</i>"
     )
-    print(f">>> Yuborilayapti: BOT={BOT_TOKEN[:20]}... CHAT={CHANNEL_ID}")
     r = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         json={
@@ -77,43 +112,22 @@ def send(original, translated):
         },
         timeout=15
     )
-    print(f">>> Telegram javobi: {r.status_code} — {r.text[:200]}")
-    return r.status_code == 200
-
-def test_connection():
-    print(">>> Telegram ulanishini tekshirilmoqda...")
-    print(f">>> BOT_TOKEN: {BOT_TOKEN[:25]}...")
-    print(f">>> CHANNEL_ID: {CHANNEL_ID}")
-    r = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={
-            "chat_id": CHANNEL_ID,
-            "text": "✅ Bot muvaffaqiyatli ulandi!"
-        },
-        timeout=15
-    )
-    print(f">>> Test natija: {r.status_code} — {r.text[:300]}")
-    return r.status_code == 200
+    if r.status_code == 200:
+        print(f"Yuborildi: {original[:60]}")
+        return True
+    print(f"Telegram xato: {r.text[:150]}")
+    return False
 
 def main():
     global SEEN
-    print("=" * 45)
-    print(f"Bot ishga tushdi")
-    print(f"CHANNEL_ID: {CHANNEL_ID}")
+    print(f"Bot ishga tushdi | Kanal: {CHANNEL_ID}")
     print(f"Har {CHECK_EVERY//60} daqiqada tekshiradi")
-    print("=" * 45)
 
-    # Telegram ulanishini tekshir
-    if not test_connection():
-        print("!!! Telegram ulanishi ishlamadi — botni kanalga admin qiling!")
-    else:
-        print(">>> Telegram ulanishi: OK")
-
-    # Birinchi ishganda mavjud postlarni belgilab qo'y
     tweets = get_tweets()
     for t in tweets:
         SEEN.add(t[:100])
-        print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
+    print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
+
     while True:
         time.sleep(CHECK_EVERY)
         print(f"\n[{datetime.now().strftime('%H:%M')}] Tekshirilmoqda...")
