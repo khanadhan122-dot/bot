@@ -176,7 +176,7 @@ def main():
     print("=" * 50)
 
     tweets = get_tweets()
-    for t in tweets:
+    for t in tweets[2:]:
         SEEN.add(t["text"][:100])
     print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
     print("Yangi postlar kutilmoqda...")
