@@ -1,15 +1,26 @@
 import os
+import re
+import json
 import time
 import requests
+
 from datetime import datetime
 from bs4 import BeautifulSoup
-import re
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID", "-100XXXXXXXXXX")
-CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
+# ==========================================
+# CONFIG
+# ==========================================
 
-SEEN = set()
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
+
+CHECK_EVERY = int(
+    os.environ.get("CHECK_EVERY", "300")
+)
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
 
 NITTER_HOSTS = [
     "https://xcancel.com",
@@ -17,37 +28,58 @@ NITTER_HOSTS = [
     "https://nitter.tiekoetter.com",
 ]
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+SEEN = set()
+
+# ==========================================
+# KEEP WORDS
+# ==========================================
 
 KEEP_WORDS = [
-    "Real Madrid", "Barcelona", "Manchester United",
-    "Manchester City", "Liverpool", "Chelsea",
-    "Arsenal", "Tottenham", "Bayern Munich",
-    "PSG", "Juventus", "AC Milan",
-    "Inter Milan", "Napoli", "Atletico Madrid",
-    "Borussia Dortmund", "Premier League",
-    "La Liga", "Serie A", "Bundesliga",
-    "Champions League", "Europa League",
-    "HERE WE GO", "Here we go",
+    "Real Madrid",
+    "Barcelona",
+    "Manchester United",
+    "Manchester City",
+    "Liverpool",
+    "Chelsea",
+    "Arsenal",
+    "Tottenham",
+    "Bayern Munich",
+    "PSG",
+    "Juventus",
+    "AC Milan",
+    "Inter Milan",
+    "Napoli",
+    "Atletico Madrid",
+    "Borussia Dortmund",
+    "Premier League",
+    "La Liga",
+    "Serie A",
+    "Bundesliga",
+    "Champions League",
+    "Europa League",
+    "HERE WE GO",
+    "Here we go",
 ]
 
-# =========================================
-# TEXT FUNCTIONS
-# =========================================
+# ==========================================
+# TRANSLATE
+# ==========================================
 
 def protect_words(text):
+
     placeholders = {}
 
     for i, word in enumerate(KEEP_WORDS):
+
         if word.lower() in text.lower():
-            ph = f"XXWORD{i}XX"
-            placeholders[ph] = word
+
+            placeholder = f"XXWORD{i}XX"
+
+            placeholders[placeholder] = word
 
             text = re.sub(
                 re.escape(word),
-                ph,
+                placeholder,
                 text,
                 flags=re.IGNORECASE
             )
@@ -56,14 +88,17 @@ def protect_words(text):
 
 
 def restore_words(text, placeholders):
-    for ph, word in placeholders.items():
-        text = text.replace(ph, word)
+
+    for placeholder, word in placeholders.items():
+        text = text.replace(placeholder, word)
 
     return text
 
 
 def translate(text):
+
     try:
+
         protected, placeholders = protect_words(text)
 
         r = requests.get(
@@ -96,31 +131,29 @@ def translate(text):
             "Mana keting!"
         ]
 
-        for w in bad_words:
+        for bad in bad_words:
             translated = translated.replace(
-                w,
+                bad,
                 "HERE WE GO!"
             )
 
         return translated
 
     except Exception as e:
-        print("Tarjima xato:", e)
+
+        print("TRANSLATE ERROR:", e)
+
         return text
 
 
-# =========================================
-# SCRAPE FUNCTIONS
-# =========================================
+# ==========================================
+# GET MEDIA
+# ==========================================
 
 def get_images_from_nitter(item, host):
-    """
-    Tweet ichidagi REAL rasmlarni olish
-    """
 
     images = []
 
-    # attachments ichidagi rasmlar
     media = item.select(".attachments img")
 
     for img in media:
@@ -134,22 +167,23 @@ def get_images_from_nitter(item, host):
         if src.startswith("/"):
             src = host + src
 
-        # original size
+        # original quality
         src = src.replace("/pic/", "/pic/orig/")
 
-        # profile rasmni skip
+        # skip profile photos
         if "profile_images" in src:
             continue
 
         images.append(src)
 
-    # duplicate remove
+    # remove duplicates
     return list(dict.fromkeys(images))
 
 
 def get_video_from_nitter(item, host):
 
     try:
+
         video = item.select_one("video source")
 
         if not video:
@@ -169,9 +203,14 @@ def get_video_from_nitter(item, host):
         return None
 
 
+# ==========================================
+# TWEET LINK
+# ==========================================
+
 def get_tweet_link(item):
 
     try:
+
         link = item.select_one("a.tweet-link")
 
         if not link:
@@ -188,13 +227,17 @@ def get_tweet_link(item):
         return "https://twitter.com/FabrizioRomano"
 
 
+# ==========================================
+# GET POSTS
+# ==========================================
+
 def get_tweets():
 
     for host in NITTER_HOSTS:
 
         try:
 
-            print(f"Checking {host}")
+            print(f"CHECKING {host}")
 
             r = requests.get(
                 f"{host}/FabrizioRomano",
@@ -205,7 +248,10 @@ def get_tweets():
             if r.status_code != 200:
                 continue
 
-            soup = BeautifulSoup(r.text, "html.parser")
+            soup = BeautifulSoup(
+                r.text,
+                "html.parser"
+            )
 
             tweets = []
 
@@ -213,16 +259,20 @@ def get_tweets():
 
             for item in items:
 
-                # retweet skip
+                # skip retweets
                 if item.select_one(".retweet-header"):
                     continue
 
-                content = item.select_one(".tweet-content")
+                content = item.select_one(
+                    ".tweet-content"
+                )
 
                 if not content:
                     continue
 
-                text = content.get_text(" ").strip()
+                text = content.get_text(
+                    " "
+                ).strip()
 
                 if len(text) < 15:
                     continue
@@ -247,22 +297,24 @@ def get_tweets():
                 })
 
             if tweets:
+
                 print(
                     f"OK {host} | "
-                    f"{len(tweets)} posts"
+                    f"{len(tweets)} POSTS"
                 )
 
                 return tweets
 
         except Exception as e:
-            print(host, e)
+
+            print("SCRAPE ERROR:", e)
 
     return []
 
 
-# =========================================
-# DOWNLOAD
-# =========================================
+# ==========================================
+# DOWNLOAD FILE
+# ==========================================
 
 def download_file(url):
 
@@ -275,23 +327,19 @@ def download_file(url):
             allow_redirects=True
         )
 
-        ctype = r.headers.get(
-            "content-type",
-            ""
-        )
-
         if r.status_code == 200:
-            return r.content, ctype
+            return r.content
 
     except Exception as e:
-        print("Download error:", e)
 
-    return None, None
+        print("DOWNLOAD ERROR:", e)
+
+    return None
 
 
-# =========================================
-# TELEGRAM SEND
-# =========================================
+# ==========================================
+# CAPTION
+# ==========================================
 
 def build_caption(original, translated):
 
@@ -313,6 +361,10 @@ def build_caption(original, translated):
     return caption
 
 
+# ==========================================
+# SEND MEDIA GROUP
+# ==========================================
+
 def send_media_group(images, caption):
 
     media = []
@@ -320,22 +372,24 @@ def send_media_group(images, caption):
 
     for i, img_url in enumerate(images[:10]):
 
-        img_data, ctype = download_file(img_url)
+        print("DOWNLOADING:", img_url)
+
+        img_data = download_file(img_url)
 
         if not img_data:
             continue
 
-        file_name = f"photo{i}.jpg"
+        filename = f"photo{i}.jpg"
 
-        files[file_name] = (
-            file_name,
+        files[filename] = (
+            filename,
             img_data,
             "image/jpeg"
         )
 
         item = {
             "type": "photo",
-            "media": f"attach://{file_name}"
+            "media": f"attach://{filename}"
         }
 
         if i == 0:
@@ -345,6 +399,9 @@ def send_media_group(images, caption):
         media.append(item)
 
     if not media:
+
+        print("NO MEDIA")
+
         return False
 
     try:
@@ -353,26 +410,35 @@ def send_media_group(images, caption):
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
             data={
                 "chat_id": CHANNEL_ID,
-                "media": str(media).replace("'", '"')
+                "media": json.dumps(media)
             },
             files=files,
             timeout=60
         )
 
+        print("MEDIA RESPONSE:")
         print(r.text)
 
         return r.status_code == 200
 
     except Exception as e:
-        print("MediaGroup error:", e)
+
+        print("MEDIA SEND ERROR:", e)
+
         return False
 
+
+# ==========================================
+# SEND VIDEO
+# ==========================================
 
 def send_video(video_url, caption):
 
     try:
 
-        video_data, ctype = download_file(video_url)
+        print("DOWNLOADING VIDEO")
+
+        video_data = download_file(video_url)
 
         if not video_data:
             return False
@@ -394,14 +460,21 @@ def send_video(video_url, caption):
             timeout=120
         )
 
+        print("VIDEO RESPONSE:")
         print(r.text)
 
         return r.status_code == 200
 
     except Exception as e:
-        print("Video error:", e)
+
+        print("VIDEO ERROR:", e)
+
         return False
 
+
+# ==========================================
+# SEND TEXT
+# ==========================================
 
 def send_text(caption):
 
@@ -418,14 +491,21 @@ def send_text(caption):
             timeout=30
         )
 
+        print("TEXT RESPONSE:")
         print(r.text)
 
         return r.status_code == 200
 
     except Exception as e:
-        print("Text error:", e)
+
+        print("TEXT ERROR:", e)
+
         return False
 
+
+# ==========================================
+# SEND POST
+# ==========================================
 
 def send_post(original, translated, images, video):
 
@@ -437,7 +517,7 @@ def send_post(original, translated, images, video):
     # video first
     if video:
 
-        print("Video found")
+        print("VIDEO FOUND")
 
         if send_video(video, caption):
             return True
@@ -445,7 +525,7 @@ def send_post(original, translated, images, video):
     # images
     if images:
 
-        print(f"{len(images)} images found")
+        print(f"{len(images)} IMAGES FOUND")
 
         if send_media_group(images, caption):
             return True
@@ -454,9 +534,9 @@ def send_post(original, translated, images, video):
     return send_text(caption)
 
 
-# =========================================
+# ==========================================
 # MAIN
-# =========================================
+# ==========================================
 
 def main():
 
@@ -469,17 +549,20 @@ def main():
     # first load
     tweets = get_tweets()
 
-    for t in tweets:
-        SEEN.add(t["text"][:120])
+    for tweet in tweets:
 
-    print(f"{len(SEEN)} old posts saved")
+        key = tweet["text"][:120]
+
+        SEEN.add(key)
+
+    print(f"{len(SEEN)} OLD POSTS SAVED")
 
     while True:
 
         try:
 
             print(
-                f"\n[{datetime.now().strftime('%H:%M:%S')}] Checking..."
+                f"\n[{datetime.now().strftime('%H:%M:%S')}] CHECKING..."
             )
 
             tweets = get_tweets()
@@ -493,8 +576,8 @@ def main():
                 if key in SEEN:
                     continue
 
-                print("NEW POST:")
-                print(tweet["text"][:80])
+                print("\nNEW POST:")
+                print(tweet["text"][:100])
 
                 translated = translate(
                     tweet["text"]
@@ -508,18 +591,31 @@ def main():
                 )
 
                 if ok:
+
                     SEEN.add(key)
+
                     sent += 1
+
+                    print("SENT SUCCESS")
+
+                else:
+
+                    print("SEND FAILED")
 
                 time.sleep(5)
 
-            print(f"Sent: {sent}")
+            print(f"SENT: {sent}")
 
         except Exception as e:
+
             print("MAIN ERROR:", e)
 
         time.sleep(CHECK_EVERY)
 
+
+# ==========================================
+# START
+# ==========================================
 
 if __name__ == "__main__":
     main()
