@@ -24,7 +24,6 @@ NITTER_HOSTS = [
     "https://xcancel.com",
     "https://nitter.poast.org",
     "https://nitter.tiekoetter.com",
-    "https://nitter.privacydev.net",
 ]
 
 HEADERS = {
