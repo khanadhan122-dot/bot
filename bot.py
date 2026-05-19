@@ -61,6 +61,7 @@ def translate(text):
         return None
 
 def send(original, translated):
+   print(f"Yuborilayapti: chat_id={CHANNEL_ID}")
     icon = "🟢 <b>HERE WE GO!</b>\n\n" if "here we go" in original.lower() else ""
     text = (
         f"⚽ <b>Fabrizio Romano</b>\n\n"
