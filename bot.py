@@ -1,26 +1,15 @@
 import os
-import re
-import json
 import time
 import requests
-
 from datetime import datetime
 from bs4 import BeautifulSoup
+import re
 
-# ==========================================
-# CONFIG
-# ==========================================
+BOT_TOKEN   = "8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"
+CHANNEL_ID  = "-1003483897290"
+CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")
-
-CHECK_EVERY = int(
-    os.environ.get("CHECK_EVERY", "300")
-)
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+SEEN = set()
 
 NITTER_HOSTS = [
     "https://xcancel.com",
@@ -28,328 +17,119 @@ NITTER_HOSTS = [
     "https://nitter.tiekoetter.com",
 ]
 
-SEEN = set()
-
-# ==========================================
-# KEEP WORDS
-# ==========================================
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+}
 
 KEEP_WORDS = [
-    "Real Madrid",
-    "Barcelona",
-    "Manchester United",
-    "Manchester City",
-    "Liverpool",
-    "Chelsea",
-    "Arsenal",
-    "Tottenham",
-    "Bayern Munich",
-    "PSG",
-    "Juventus",
-    "AC Milan",
-    "Inter Milan",
-    "Napoli",
-    "Atletico Madrid",
-    "Borussia Dortmund",
-    "Premier League",
-    "La Liga",
-    "Serie A",
-    "Bundesliga",
-    "Champions League",
-    "Europa League",
-    "HERE WE GO",
-    "Here we go",
+    "Real Madrid", "Barcelona", "Manchester United", "Manchester City",
+    "Liverpool", "Chelsea", "Arsenal", "Tottenham", "Bayern Munich",
+    "PSG", "Juventus", "AC Milan", "Inter Milan", "Napoli",
+    "Atletico Madrid", "Borussia Dortmund", "Premier League",
+    "La Liga", "Serie A", "Bundesliga", "Champions League",
+    "Europa League", "HERE WE GO", "Here we go", "done deal",
+    "Aston Villa", "Newcastle", "West Ham", "Everton", "Leicester",
+    "Roma", "Lazio", "Fiorentina", "Sevilla", "Valencia",
+    "RB Leipzig", "Bayer Leverkusen", "Porto", "Benfica", "Ajax",
 ]
 
-# ==========================================
-# TRANSLATE
-# ==========================================
-
 def protect_words(text):
-
     placeholders = {}
-
     for i, word in enumerate(KEEP_WORDS):
-
         if word.lower() in text.lower():
-
             placeholder = f"XXWORD{i}XX"
-
             placeholders[placeholder] = word
-
-            text = re.sub(
-                re.escape(word),
-                placeholder,
-                text,
-                flags=re.IGNORECASE
-            )
-
+            text = re.sub(re.escape(word), placeholder, text, flags=re.IGNORECASE)
     return text, placeholders
 
-
 def restore_words(text, placeholders):
-
     for placeholder, word in placeholders.items():
         text = text.replace(placeholder, word)
-
     return text
 
-
 def translate(text):
-
     try:
-
         protected, placeholders = protect_words(text)
-
         r = requests.get(
             "https://translate.googleapis.com/translate_a/single",
-            params={
-                "client": "gtx",
-                "sl": "en",
-                "tl": "uz",
-                "dt": "t",
-                "q": protected
-            },
-            timeout=20
+            params={"client": "gtx", "sl": "en", "tl": "uz", "dt": "t", "q": protected},
+            timeout=15
         )
-
-        translated = "".join(
-            x[0] for x in r.json()[0] if x[0]
-        )
-
-        translated = restore_words(
-            translated,
-            placeholders
-        )
-
-        bad_words = [
-            "Mana, ketdik!",
-            "Mana boring!",
-            "Bu yerga boring!",
-            "Keling!",
-            "Mana ket!",
-            "Mana keting!"
-        ]
-
-        for bad in bad_words:
-            translated = translated.replace(
-                bad,
-                "HERE WE GO!"
-            )
-
-        return translated
-
+        translated = "".join(p[0] for p in r.json()[0] if p[0])
+        result = restore_words(translated, placeholders)
+        for wrong in ["Mana, ketdik!", "Bu yerga boring!", "Mana boring!", "Keling!", "Mana ket!", "Mana keting!"]:
+            result = result.replace(wrong, "HERE WE GO!")
+        return result
     except Exception as e:
-
-        print("TRANSLATE ERROR:", e)
-
-        return text
-
-
-# ==========================================
-# GET MEDIA
-# ==========================================
-
-def get_images_from_nitter(item, host):
-
-    images = []
-
-    media = item.select(".attachments img")
-
-    for img in media:
-
-        src = img.get("src", "")
-
-        if not src:
-            continue
-
-        # relative url
-        if src.startswith("/"):
-            src = host + src
-
-        # original quality
-        src = src.replace("/pic/", "/pic/orig/")
-
-        # skip profile photos
-        if "profile_images" in src:
-            continue
-
-        images.append(src)
-
-    # remove duplicates
-    return list(dict.fromkeys(images))
-
-
-def get_video_from_nitter(item, host):
-
-    try:
-
-        video = item.select_one("video source")
-
-        if not video:
-            return None
-
-        src = video.get("src")
-
-        if not src:
-            return None
-
-        if src.startswith("/"):
-            src = host + src
-
-        return src
-
-    except:
+        print(f"Tarjima xato: {e}")
         return None
 
+def get_images_from_nitter(item, host):
+    """Nitter dan rasm URL larini olish"""
+    images = []
+    for img in item.select("img"):
+        src = img.get("src", "")
+        if not src:
+            continue
+        # Nitter rasm linklari /pic/ yoki /media/ bilan boshlanadi
+        if src.startswith("/pic/") or src.startswith("/media/"):
+            full = host + src
+            images.append(full)
+        elif "pbs.twimg.com" in src or "twimg.com" in src:
+            images.append(src)
+    return images
 
-# ==========================================
-# TWEET LINK
-# ==========================================
-
-def get_tweet_link(item):
-
-    try:
-
-        link = item.select_one("a.tweet-link")
-
-        if not link:
-            return "https://twitter.com/FabrizioRomano"
-
+def get_tweet_link(item, host):
+    """Post linkini olish"""
+    link = item.select_one(".tweet-link, a.tweet-date")
+    if link:
         href = link.get("href", "")
-
         if href.startswith("/"):
-            return "https://twitter.com" + href
-
+            return f"https://twitter.com{href}"
         return href
-
-    except:
-        return "https://twitter.com/FabrizioRomano"
-
-
-# ==========================================
-# GET POSTS
-# ==========================================
+    return "https://twitter.com/FabrizioRomano"
 
 def get_tweets():
-
     for host in NITTER_HOSTS:
-
         try:
-
-            print(f"CHECKING {host}")
-
-            r = requests.get(
-                f"{host}/FabrizioRomano",
-                headers=HEADERS,
-                timeout=20
-            )
-
+            r = requests.get(f"{host}/FabrizioRomano", timeout=15, headers=HEADERS)
             if r.status_code != 200:
+                print(f"Skip {host}: {r.status_code}")
                 continue
-
-            soup = BeautifulSoup(
-                r.text,
-                "html.parser"
-            )
-
+            soup = BeautifulSoup(r.text, "html.parser")
             tweets = []
-
-            items = soup.select(".timeline-item")
-
-            for item in items:
-
-                # skip retweets
+            for item in soup.select(".timeline-item"):
                 if item.select_one(".retweet-header"):
                     continue
-
-                content = item.select_one(
-                    ".tweet-content"
-                )
-
+                content = item.select_one(".tweet-content")
                 if not content:
                     continue
-
-                text = content.get_text(
-                    " "
-                ).strip()
-
+                text = content.get_text(" ").strip()
                 if len(text) < 15:
                     continue
-
-                images = get_images_from_nitter(
-                    item,
-                    host
-                )
-
-                video = get_video_from_nitter(
-                    item,
-                    host
-                )
-
-                link = get_tweet_link(item)
-
-                tweets.append({
-                    "text": text,
-                    "images": images,
-                    "video": video,
-                    "link": link
-                })
-
+                images = get_images_from_nitter(item, host)
+                link = get_tweet_link(item, host)
+                tweets.append({"text": text, "images": images, "link": link})
             if tweets:
-
-                print(
-                    f"OK {host} | "
-                    f"{len(tweets)} POSTS"
-                )
-
+                print(f"OK {host}: {len(tweets)} post, rasmli: {sum(1 for t in tweets if t['images'])} ta")
                 return tweets
-
         except Exception as e:
-
-            print("SCRAPE ERROR:", e)
-
+            print(f"Xato {host}: {e}")
     return []
 
-
-# ==========================================
-# DOWNLOAD FILE
-# ==========================================
-
-def download_file(url):
-
+def download_image(url):
+    """Rasmni yuklab olish"""
     try:
-
-        r = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=30,
-            allow_redirects=True
-        )
-
-        if r.status_code == 200:
+        r = requests.get(url, timeout=15, headers=HEADERS)
+        if r.status_code == 200 and len(r.content) > 1000:
             return r.content
-
     except Exception as e:
-
-        print("DOWNLOAD ERROR:", e)
-
+        print(f"Rasm yuklab olish xato: {e}")
     return None
 
-
-# ==========================================
-# CAPTION
-# ==========================================
-
-def build_caption(original, translated):
-
+def send(original, translated, images, link):
     here = "here we go" in original.lower()
-
-    icon = ""
-
-    if here:
-        icon = "🟢 <b>HERE WE GO!</b>\n\n"
-
+    icon = "🟢 <b>HERE WE GO!</b>\n\n" if here else ""
     caption = (
         f"⚽ <b>Fabrizio Romano</b> 🇮🇹\n\n"
         f"{icon}"
@@ -358,264 +138,67 @@ def build_caption(original, translated):
         f"🇬🇧 <i>{original}</i>"
     )
 
-    return caption
-
-
-# ==========================================
-# SEND MEDIA GROUP
-# ==========================================
-
-def send_media_group(images, caption):
-
-    media = []
-    files = {}
-
-    for i, img_url in enumerate(images[:10]):
-
-        print("DOWNLOADING:", img_url)
-
-        img_data = download_file(img_url)
-
-        if not img_data:
-            continue
-
-        filename = f"photo{i}.jpg"
-
-        files[filename] = (
-            filename,
-            img_data,
-            "image/jpeg"
-        )
-
-        item = {
-            "type": "photo",
-            "media": f"attach://{filename}"
-        }
-
-        if i == 0:
-            item["caption"] = caption
-            item["parse_mode"] = "HTML"
-
-        media.append(item)
-
-    if not media:
-
-        print("NO MEDIA")
-
-        return False
-
-    try:
-
-        r = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
-            data={
-                "chat_id": CHANNEL_ID,
-                "media": json.dumps(media)
-            },
-            files=files,
-            timeout=60
-        )
-
-        print("MEDIA RESPONSE:")
-        print(r.text)
-
-        return r.status_code == 200
-
-    except Exception as e:
-
-        print("MEDIA SEND ERROR:", e)
-
-        return False
-
-
-# ==========================================
-# SEND VIDEO
-# ==========================================
-
-def send_video(video_url, caption):
-
-    try:
-
-        print("DOWNLOADING VIDEO")
-
-        video_data = download_file(video_url)
-
-        if not video_data:
-            return False
-
-        r = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo",
-            data={
-                "chat_id": CHANNEL_ID,
-                "caption": caption,
-                "parse_mode": "HTML"
-            },
-            files={
-                "video": (
-                    "video.mp4",
-                    video_data,
-                    "video/mp4"
-                )
-            },
-            timeout=120
-        )
-
-        print("VIDEO RESPONSE:")
-        print(r.text)
-
-        return r.status_code == 200
-
-    except Exception as e:
-
-        print("VIDEO ERROR:", e)
-
-        return False
-
-
-# ==========================================
-# SEND TEXT
-# ==========================================
-
-def send_text(caption):
-
-    try:
-
-        r = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": CHANNEL_ID,
-                "text": caption,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True
-            },
-            timeout=30
-        )
-
-        print("TEXT RESPONSE:")
-        print(r.text)
-
-        return r.status_code == 200
-
-    except Exception as e:
-
-        print("TEXT ERROR:", e)
-
-        return False
-
-
-# ==========================================
-# SEND POST
-# ==========================================
-
-def send_post(original, translated, images, video):
-
-    caption = build_caption(
-        original,
-        translated
-    )
-
-    # video first
-    if video:
-
-        print("VIDEO FOUND")
-
-        if send_video(video, caption):
-            return True
-
-    # images
+    # Rasm bilan yuborishga urinish
     if images:
+        print(f"Rasmlar topildi: {len(images)} ta — {images[0]}")
+        img_data = download_image(images[0])
+        if img_data:
+            r = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                data={"chat_id": CHANNEL_ID, "caption": caption, "parse_mode": "HTML"},
+                files={"photo": ("image.jpg", img_data, "image/jpeg")},
+                timeout=20
+            )
+            if r.status_code == 200:
+                print(f"✅ Rasm bilan yuborildi: {original[:50]}")
+                return True
+            print(f"Rasm yuborish xato: {r.text[:100]}")
 
-        print(f"{len(images)} IMAGES FOUND")
-
-        if send_media_group(images, caption):
-            return True
-
-    # fallback text
-    return send_text(caption)
-
-
-# ==========================================
-# MAIN
-# ==========================================
+    # Faqat matn
+    r = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        json={"chat_id": CHANNEL_ID, "text": caption,
+              "parse_mode": "HTML", "disable_web_page_preview": True},
+        timeout=15
+    )
+    if r.status_code == 200:
+        print(f"✅ Matn yuborildi: {original[:50]}")
+        return True
+    print(f"Telegram xato: {r.text[:150]}")
+    return False
 
 def main():
-
     global SEEN
-
     print("=" * 50)
-    print("FABRIZIO ROMANO BOT")
+    print("Fabrizio Romano Bot ishga tushdi")
+    print(f"Kanal: {CHANNEL_ID}")
+    print(f"Har {CHECK_EVERY//60} daqiqada tekshiradi")
     print("=" * 50)
 
-    # first load
     tweets = get_tweets()
-
-    for tweet in tweets:
-
-        key = tweet["text"][:120]
-
-        SEEN.add(key)
-
-    print(f"{len(SEEN)} OLD POSTS SAVED")
+    for t in tweets:
+        SEEN.add(t["text"][:100])
+    print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
+    print("Yangi postlar kutilmoqda...")
 
     while True:
-
+        time.sleep(CHECK_EVERY)
+        print(f"\n[{datetime.now().strftime('%H:%M')}] Tekshirilmoqda...")
         try:
-
-            print(
-                f"\n[{datetime.now().strftime('%H:%M:%S')}] CHECKING..."
-            )
-
             tweets = get_tweets()
-
-            sent = 0
-
-            for tweet in reversed(tweets):
-
-                key = tweet["text"][:120]
-
+            total = 0
+            for tweet in tweets:
+                key = tweet["text"][:100]
                 if key in SEEN:
                     continue
-
-                print("\nNEW POST:")
-                print(tweet["text"][:100])
-
-                translated = translate(
-                    tweet["text"]
-                )
-
-                ok = send_post(
-                    tweet["text"],
-                    translated,
-                    tweet["images"],
-                    tweet["video"]
-                )
-
-                if ok:
-
+                tr = translate(tweet["text"])
+                if tr and send(tweet["text"], tr, tweet["images"], tweet["link"]):
                     SEEN.add(key)
-
-                    sent += 1
-
-                    print("SENT SUCCESS")
-
-                else:
-
-                    print("SEND FAILED")
-
-                time.sleep(5)
-
-            print(f"SENT: {sent}")
-
+                    total += 1
+                    time.sleep(3)
+            print(f"{total} ta yangi post yuborildi" if total else "Yangi post yoq")
         except Exception as e:
-
-            print("MAIN ERROR:", e)
-
-        time.sleep(CHECK_EVERY)
-
-
-# ==========================================
-# START
-# ==========================================
+            print(f"Xato: {e}")
 
 if __name__ == "__main__":
     main()
