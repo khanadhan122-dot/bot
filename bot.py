@@ -5,7 +5,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 BOT_TOKEN   = os.environ["BOT_TOKEN"]
-CHANNEL_ID  = os.environ["CHANNEL_ID"]
+CHANNEL_ID  = "-1003483897290"
 CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
 SEEN = set()
