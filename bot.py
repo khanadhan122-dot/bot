@@ -88,8 +88,6 @@ def main():
 
     # Birinchi ishganda mavjud postlarni belgilab qo'y
     tweets = get_tweets()
-    for t in tweets:
-        SEEN.add(t[:100])
     print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi, yangilarini kutmoqda...")
 
     while True:
