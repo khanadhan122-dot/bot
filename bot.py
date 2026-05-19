@@ -111,10 +111,9 @@ def main():
 
     # Birinchi ishganda mavjud postlarni belgilab qo'y
     tweets = get_tweets()
-    for t in tweets[1:]:
+    for t in tweets:
         SEEN.add(t[:100])
-    print(f"Birinchi ishga tushish: {len(tweets)-1} post belgilandi, 1 ta yangi yuboriladi")
-
+        print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
     while True:
         time.sleep(CHECK_EVERY)
         print(f"\n[{datetime.now().strftime('%H:%M')}] Tekshirilmoqda...")
