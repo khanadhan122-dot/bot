@@ -64,6 +64,31 @@ def translate(text):
         print(f"Tarjima xato: {e}")
         return None
 
+def get_images_from_nitter(item, host):
+    """Nitter dan rasm URL larini olish"""
+    images = []
+    for img in item.select("img"):
+        src = img.get("src", "")
+        if not src:
+            continue
+        # Nitter rasm linklari /pic/ yoki /media/ bilan boshlanadi
+        if src.startswith("/pic/") or src.startswith("/media/"):
+            full = host + src
+            images.append(full)
+        elif "pbs.twimg.com" in src or "twimg.com" in src:
+            images.append(src)
+    return images
+
+def get_tweet_link(item, host):
+    """Post linkini olish"""
+    link = item.select_one(".tweet-link, a.tweet-date")
+    if link:
+        href = link.get("href", "")
+        if href.startswith("/"):
+            return f"https://twitter.com{href}"
+        return href
+    return "https://twitter.com/FabrizioRomano"
+
 def get_tweets():
     for host in NITTER_HOSTS:
         try:
@@ -82,24 +107,27 @@ def get_tweets():
                 text = content.get_text(" ").strip()
                 if len(text) < 15:
                     continue
-                # Rasmlarni topish
-                images = []
-                for img in item.select(".attachment img, .still-image img, img.tweet-image"):
-                    src = img.get("src", "")
-                    if src and "/pic/" in src:
-                        # Nitter rasm linkini asl Twitter rasm linkiga o'tkazish
-                        image_url = src.replace(host, "").strip("/")
-                        full_url = f"{host}/{image_url}" if not src.startswith("http") else src
-                        images.append(full_url)
-                tweets.append({"text": text, "images": images})
+                images = get_images_from_nitter(item, host)
+                link = get_tweet_link(item, host)
+                tweets.append({"text": text, "images": images, "link": link})
             if tweets:
-                print(f"OK {host}: {len(tweets)} post")
+                print(f"OK {host}: {len(tweets)} post, rasmli: {sum(1 for t in tweets if t['images'])} ta")
                 return tweets
         except Exception as e:
             print(f"Xato {host}: {e}")
     return []
 
-def send(original, translated, images):
+def download_image(url):
+    """Rasmni yuklab olish"""
+    try:
+        r = requests.get(url, timeout=15, headers=HEADERS)
+        if r.status_code == 200 and len(r.content) > 1000:
+            return r.content
+    except Exception as e:
+        print(f"Rasm yuklab olish xato: {e}")
+    return None
+
+def send(original, translated, images, link):
     here = "here we go" in original.lower()
     icon = "🟢 <b>HERE WE GO!</b>\n\n" if here else ""
     caption = (
@@ -110,27 +138,23 @@ def send(original, translated, images):
         f"🇬🇧 <i>{original}</i>"
     )
 
-    # Rasm bilan yuborish
+    # Rasm bilan yuborishga urinish
     if images:
-        try:
-            # Rasmni yuklab olish
-            img_r = requests.get(images[0], timeout=15, headers=HEADERS)
-            if img_r.status_code == 200:
-                r = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                    data={"chat_id": CHANNEL_ID, "caption": caption,
-                          "parse_mode": "HTML"},
-                    files={"photo": ("image.jpg", img_r.content, "image/jpeg")},
-                    timeout=20
-                )
-                if r.status_code == 200:
-                    print(f"Rasm bilan yuborildi: {original[:50]}")
-                    return True
-                print(f"Rasm xato: {r.text[:100]}, oddiy matn yuboriladi")
-        except Exception as e:
-            print(f"Rasm yuklab olish xato: {e}")
+        print(f"Rasmlar topildi: {len(images)} ta — {images[0]}")
+        img_data = download_image(images[0])
+        if img_data:
+            r = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                data={"chat_id": CHANNEL_ID, "caption": caption, "parse_mode": "HTML"},
+                files={"photo": ("image.jpg", img_data, "image/jpeg")},
+                timeout=20
+            )
+            if r.status_code == 200:
+                print(f"✅ Rasm bilan yuborildi: {original[:50]}")
+                return True
+            print(f"Rasm yuborish xato: {r.text[:100]}")
 
-    # Faqat matn yuborish
+    # Faqat matn
     r = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         json={"chat_id": CHANNEL_ID, "text": caption,
@@ -138,7 +162,7 @@ def send(original, translated, images):
         timeout=15
     )
     if r.status_code == 200:
-        print(f"Matn yuborildi: {original[:50]}")
+        print(f"✅ Matn yuborildi: {original[:50]}")
         return True
     print(f"Telegram xato: {r.text[:150]}")
     return False
@@ -152,7 +176,7 @@ def main():
     print("=" * 50)
 
     tweets = get_tweets()
-    for t in tweets[2:]:
+    for t in tweets:
         SEEN.add(t["text"][:100])
     print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
     print("Yangi postlar kutilmoqda...")
@@ -168,7 +192,7 @@ def main():
                 if key in SEEN:
                     continue
                 tr = translate(tweet["text"])
-                if tr and send(tweet["text"], tr, tweet["images"]):
+                if tr and send(tweet["text"], tr, tweet["images"], tweet["link"]):
                     SEEN.add(key)
                     total += 1
                     time.sleep(3)
