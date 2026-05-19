@@ -3,6 +3,7 @@ import time
 import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
+import re
 
 BOT_TOKEN   = "8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"
 CHANNEL_ID  = "-1003483897290"
@@ -10,14 +11,13 @@ CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
 SEEN = set()
 
-# Kuzatiladigan manbalar
 SOURCES = [
-    {"user": "FabrizioRomano",   "name": "Fabrizio Romano",    "flag": "🇮🇹"},
-    {"user": "David_Ornstein",   "name": "David Ornstein",     "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    {"user": "MatteMoretto",     "name": "Matteo Moretto",     "flag": "🇪🇸"},
-    {"user": "Plettigoal",       "name": "Florian Plettenberg","flag": "🇩🇪"},
-    {"user": "BenJacobs",        "name": "Ben Jacobs",         "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    {"user": "Ekremkonur",       "name": "Ekrem Konur",        "flag": "🇹🇷"},
+    {"user": "FabrizioRomano",   "name": "Fabrizio Romano",     "flag": "🇮🇹"},
+    {"user": "David_Ornstein",   "name": "David Ornstein",      "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    {"user": "MatteMoretto",     "name": "Matteo Moretto",      "flag": "🇪🇸"},
+    {"user": "Plettigoal",       "name": "Florian Plettenberg", "flag": "🇩🇪"},
+    {"user": "BenJacobs",        "name": "Ben Jacobs",          "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    {"user": "Ekremkonur",       "name": "Ekrem Konur",         "flag": "🇹🇷"},
 ]
 
 NITTER_HOSTS = [
@@ -48,7 +48,6 @@ def protect_words(text):
         if word.lower() in text.lower():
             placeholder = f"XXWORD{i}XX"
             placeholders[placeholder] = word
-            import re
             text = re.sub(re.escape(word), placeholder, text, flags=re.IGNORECASE)
     return text, placeholders
 
@@ -67,8 +66,7 @@ def translate(text):
         )
         translated = "".join(p[0] for p in r.json()[0] if p[0])
         result = restore_words(translated, placeholders)
-        # HERE WE GO ni to'g'irlash
-        for wrong in ["Mana, ketdik!", "Bu yerga boring!", "Mana boring!", "Keling!", "Mana ket!"]:
+        for wrong in ["Mana, ketdik!", "Bu yerga boring!", "Mana boring!", "Keling!", "Mana ket!", "Mana keting!"]:
             result = result.replace(wrong, "HERE WE GO!")
         return result
     except Exception as e:
@@ -80,6 +78,7 @@ def get_tweets(username):
         try:
             r = requests.get(f"{host}/{username}", timeout=15, headers=HEADERS)
             if r.status_code != 200:
+                print(f"Skip {host}/{username}: {r.status_code}")
                 continue
             soup = BeautifulSoup(r.text, "html.parser")
             tweets = []
@@ -94,6 +93,7 @@ def get_tweets(username):
             if tweets:
                 print(f"OK {host}/{username}: {len(tweets)} post")
                 return tweets
+            print(f"Skip {host}/{username}: post topilmadi")
         except Exception as e:
             print(f"Xato {host}/{username}: {e}")
     return []
@@ -101,7 +101,6 @@ def get_tweets(username):
 def send(source, original, translated):
     here = "here we go" in original.lower()
     icon = "🟢 <b>HERE WE GO!</b>\n\n" if here else ""
-
     text = (
         f"⚽ <b>{source['name']}</b> {source['flag']}\n\n"
         f"{icon}"
@@ -111,12 +110,8 @@ def send(source, original, translated):
     )
     r = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={
-            "chat_id": CHANNEL_ID,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        },
+        json={"chat_id": CHANNEL_ID, "text": text,
+              "parse_mode": "HTML", "disable_web_page_preview": True},
         timeout=15
     )
     if r.status_code == 200:
@@ -128,28 +123,25 @@ def send(source, original, translated):
 def main():
     global SEEN
     print("=" * 50)
-    print(f"Transfer Bot ishga tushdi")
-    print(f"Manbalar: {len(SOURCES)} ta insider")
+    print(f"Transfer Bot ishga tushdi | {len(SOURCES)} ta manba")
     print(f"Kanal: {CHANNEL_ID}")
     print(f"Har {CHECK_EVERY//60} daqiqada tekshiradi")
     print("=" * 50)
 
-    # Birinchi ishganda barcha mavjud postlarni belgilab qo'y
     for source in SOURCES:
         tweets = get_tweets(source["user"])
         for t in tweets:
-            key = f"{source['user']}:{t[:100]}"
-            SEEN.add(key)
+            SEEN.add(f"{source['user']}:{t[:100]}")
         print(f"{source['name']}: {len(tweets)} post belgilandi")
-        time.sleep(2)
+        time.sleep(1)
 
-    print("Yangi postlar kutilmoqda...")
+    print("\nYangi postlar kutilmoqda...")
 
     while True:
         time.sleep(CHECK_EVERY)
         print(f"\n[{datetime.now().strftime('%H:%M')}] Tekshirilmoqda...")
         try:
-            total_new = 0
+            total = 0
             for source in SOURCES:
                 tweets = get_tweets(source["user"])
                 for tweet in tweets:
@@ -159,10 +151,10 @@ def main():
                     tr = translate(tweet)
                     if tr and send(source, tweet, tr):
                         SEEN.add(key)
-                        total_new += 1
+                        total += 1
                         time.sleep(3)
-                time.sleep(2)
-            print(f"{total_new} ta yangi post yuborildi" if total_new else "Yangi post yoq")
+                time.sleep(1)
+            print(f"{total} ta yangi post yuborildi" if total else "Yangi post yoq")
         except Exception as e:
             print(f"Xato: {e}")
 
