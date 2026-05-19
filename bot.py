@@ -5,8 +5,8 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 BOT_TOKEN   = os.environ["BOT_TOKEN"]
-CHANNEL_ID  = "-1003483897290"
-CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "10"))
+CHANNEL_ID  = os.environ.get("CHANNEL_ID", "-1003483897290")
+CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
 SEEN = set()
 
@@ -15,12 +15,10 @@ NITTER_HOSTS = [
     "https://nitter.poast.org",
     "https://nitter.tiekoetter.com",
     "https://nitter.privacydev.net",
-    "https://nitter.kavin.rocks",
 ]
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
 }
 
 def get_tweets():
@@ -43,7 +41,6 @@ def get_tweets():
             if tweets:
                 print(f"OK {host}: {len(tweets)} post")
                 return tweets
-            print(f"Skip {host}: post topilmadi")
         except Exception as e:
             print(f"Xato {host}: {e}")
     return []
@@ -61,7 +58,6 @@ def translate(text):
         return None
 
 def send(original, translated):
-   print(f"Yuborilayapti: chat_id={CHANNEL_ID}")
     icon = "🟢 <b>HERE WE GO!</b>\n\n" if "here we go" in original.lower() else ""
     text = (
         f"⚽ <b>Fabrizio Romano</b>\n\n"
@@ -70,26 +66,54 @@ def send(original, translated):
         f"━━━━━━━━━━━━━━\n"
         f"🇬🇧 <i>{original}</i>"
     )
+    print(f">>> Yuborilayapti: BOT={BOT_TOKEN[:20]}... CHAT={CHANNEL_ID}")
     r = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={"chat_id": CHANNEL_ID, "text": text,
-              "parse_mode": "HTML", "disable_web_page_preview": True},
+        json={
+            "chat_id": CHANNEL_ID,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True
+        },
         timeout=15
     )
-    if r.status_code == 200:
-        print(f"Yuborildi: {original[:60]}")
-        return True
-    print(f"Telegram xato: {r.text[:150]}")
-    return False
+    print(f">>> Telegram javobi: {r.status_code} — {r.text[:200]}")
+    return r.status_code == 200
+
+def test_connection():
+    print(">>> Telegram ulanishini tekshirilmoqda...")
+    print(f">>> BOT_TOKEN: {BOT_TOKEN[:25]}...")
+    print(f">>> CHANNEL_ID: {CHANNEL_ID}")
+    r = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        json={
+            "chat_id": CHANNEL_ID,
+            "text": "✅ Bot muvaffaqiyatli ulandi!"
+        },
+        timeout=15
+    )
+    print(f">>> Test natija: {r.status_code} — {r.text[:300]}")
+    return r.status_code == 200
 
 def main():
     global SEEN
-    print(f"Bot ishga tushdi | Kanal: {CHANNEL_ID}")
+    print("=" * 45)
+    print(f"Bot ishga tushdi")
+    print(f"CHANNEL_ID: {CHANNEL_ID}")
     print(f"Har {CHECK_EVERY//60} daqiqada tekshiradi")
+    print("=" * 45)
+
+    # Telegram ulanishini tekshir
+    if not test_connection():
+        print("!!! Telegram ulanishi ishlamadi — botni kanalga admin qiling!")
+    else:
+        print(">>> Telegram ulanishi: OK")
 
     # Birinchi ishganda mavjud postlarni belgilab qo'y
     tweets = get_tweets()
-    print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi, yangilarini kutmoqda...")
+    for t in tweets:
+        SEEN.add(t[:100])
+    print(f"Birinchi ishga tushish: {len(tweets)} post belgilandi")
 
     while True:
         time.sleep(CHECK_EVERY)
