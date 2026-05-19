@@ -4,7 +4,7 @@ import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-BOT_TOKEN   = os.environ["8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"]
+BOT_TOKEN   = "8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"
 CHANNEL_ID  = os.environ.get("CHANNEL_ID", "-1003483897290")
 CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
