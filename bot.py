@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 BOT_TOKEN   = "8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"
 CHANNEL_ID  = "-1003483897290"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
+CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "10"))
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
