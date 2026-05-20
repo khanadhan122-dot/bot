@@ -24,7 +24,19 @@ NITTER_HOSTS = [
     "https://nitter.tiekoetter.com",
 ]
 
-SEEN = set()
+SEEN_FILE = "seen_posts.json"
+
+def load_seen():
+    if os.path.exists(SEEN_FILE):
+        with open(SEEN_FILE) as f:
+            return set(json.load(f))
+    return set()
+
+def save_seen(seen):
+    with open(SEEN_FILE, "w") as f:
+        json.dump(list(seen)[-1000:], f)
+
+SEEN = load_seen()
 
 # ==========================================
 # TRANSLATE (GROQ)
@@ -293,6 +305,7 @@ def main():
                 ok = send_post(tweet["text"], translated, tweet["images"], tweet["video"])
                 if ok:
                     SEEN.add(key)
+                    save_seen(SEEN)
                     sent += 1
                     print("YUBORILDI ✅")
                 else:
