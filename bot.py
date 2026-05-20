@@ -11,13 +11,12 @@ from bs4 import BeautifulSoup
 # CONFIG
 # ==========================================
 
-BOT_TOKEN  = "8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"
-CHANNEL_ID = "-1003483897290"
+BOT_TOKEN   = "8153557967:AAHk4EoCSoh-PIkcFljqEzVKv_FgXyDLS-Q"
+CHANNEL_ID  = "-1003483897290"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 CHECK_EVERY = int(os.environ.get("CHECK_EVERY", "300"))
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 NITTER_HOSTS = [
     "https://xcancel.com",
@@ -28,55 +27,55 @@ NITTER_HOSTS = [
 SEEN = set()
 
 # ==========================================
-# KEEP WORDS
+# TRANSLATE (GROQ)
 # ==========================================
-
-KEEP_WORDS = [
-    "Real Madrid", "Barcelona", "Manchester United", "Manchester City",
-    "Liverpool", "Chelsea", "Arsenal", "Tottenham", "Bayern Munich",
-    "PSG", "Juventus", "AC Milan", "Inter Milan", "Napoli",
-    "Atletico Madrid", "Borussia Dortmund", "Premier League",
-    "La Liga", "Serie A", "Bundesliga", "Champions League",
-    "Europa League", "HERE WE GO", "Here we go",
-    "Aston Villa", "Newcastle", "West Ham", "Everton", "Leicester",
-    "Roma", "Lazio", "Fiorentina", "Sevilla", "Valencia",
-    "RB Leipzig", "Bayer Leverkusen", "Porto", "Benfica", "Ajax",
-]
-
-# ==========================================
-# TRANSLATE
-# ==========================================
-
-def protect_words(text):
-    placeholders = {}
-    for i, word in enumerate(KEEP_WORDS):
-        if word.lower() in text.lower():
-            placeholder = f"XXWORD{i}XX"
-            placeholders[placeholder] = word
-            text = re.sub(re.escape(word), placeholder, text, flags=re.IGNORECASE)
-    return text, placeholders
-
-def restore_words(text, placeholders):
-    for placeholder, word in placeholders.items():
-        text = text.replace(placeholder, word)
-    return text
 
 def translate(text):
     try:
-        protected, placeholders = protect_words(text)
-        r = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "en", "tl": "uz", "dt": "t", "q": protected},
+        r = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama3-8b-8192",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Sen futbol tarjimonisan. Matnni o'zbek tiliga tarjima qil.\n"
+                            "Qoidalar:\n"
+                            "- Klub nomlari, futbolchi ismlari, mamlakat nomlarini o'zgartirma\n"
+                            "- 'Here we go!' ni tarjima qilma, shundayicha qoldur\n"
+                            "- Faqat tarjimani yoz, boshqa hech narsa yozma\n"
+                            "- Futbol atamalarini to'g'ri ishlat"
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ],
+                "temperature": 0.3,
+                "max_tokens": 1024
+            },
             timeout=20
         )
-        translated = "".join(x[0] for x in r.json()[0] if x[0])
-        translated = restore_words(translated, placeholders)
-        for bad in ["Mana, ketdik!", "Mana boring!", "Bu yerga boring!", "Keling!", "Mana ket!", "Mana keting!"]:
-            translated = translated.replace(bad, "HERE WE GO!")
-        return translated
+        result = r.json()
+        return result["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        print("TRANSLATE ERROR:", e)
-        return text
+        print("GROQ ERROR:", e)
+        # Google Translate ga fallback
+        try:
+            r = requests.get(
+                "https://translate.googleapis.com/translate_a/single",
+                params={"client": "gtx", "sl": "en", "tl": "uz", "dt": "t", "q": text},
+                timeout=15
+            )
+            return "".join(x[0] for x in r.json()[0] if x[0])
+        except:
+            return text
 
 # ==========================================
 # GET MEDIA
@@ -218,10 +217,6 @@ def send_media_group(images, caption):
         print("MEDIA SEND ERROR:", e)
         return False
 
-# ==========================================
-# SEND VIDEO
-# ==========================================
-
 def send_video(video_url, caption):
     try:
         print("DOWNLOADING VIDEO")
@@ -240,10 +235,6 @@ def send_video(video_url, caption):
         print("VIDEO ERROR:", e)
         return False
 
-# ==========================================
-# SEND TEXT
-# ==========================================
-
 def send_text(caption):
     try:
         r = requests.post(
@@ -257,10 +248,6 @@ def send_text(caption):
     except Exception as e:
         print("TEXT ERROR:", e)
         return False
-
-# ==========================================
-# SEND POST
-# ==========================================
 
 def send_post(original, translated, images, video):
     caption = build_caption(original, translated)
@@ -281,7 +268,7 @@ def send_post(original, translated, images, video):
 def main():
     global SEEN
     print("=" * 50)
-    print("FABRIZIO ROMANO BOT")
+    print("FABRIZIO ROMANO BOT — GROQ AI TARJIMA")
     print(f"KANAL: {CHANNEL_ID}")
     print(f"HAR {CHECK_EVERY//60} DAQIQADA TEKSHIRADI")
     print("=" * 50)
@@ -302,7 +289,6 @@ def main():
                 if key in SEEN:
                     continue
                 print(f"\nYANGI POST: {tweet['text'][:80]}")
-                print(f"RASMLAR: {len(tweet['images'])} ta | VIDEO: {'bor' if tweet['video'] else 'yoq'}")
                 translated = translate(tweet["text"])
                 ok = send_post(tweet["text"], translated, tweet["images"], tweet["video"])
                 if ok:
